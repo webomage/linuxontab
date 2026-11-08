@@ -2503,6 +2503,130 @@
       return out;
     }
 
+    // ── IPv6 Virtual Router (EtherType 0x86DD: NDP NS/NA, ICMPv6 Echo ping6, UDPv6 DoH) ──
+    const ROUTER_MAC = new Uint8Array([0x52, 0x54, 0x00, 0x01, 0x02, 0x03]);
+
+    function icmpv6Checksum(srcIp6, dstIp6, nextHdr, payload) {
+      let sum = 0;
+      for (let i = 0; i < 16; i += 2) {
+        sum += (srcIp6[i] << 8) | srcIp6[i + 1];
+        sum += (dstIp6[i] << 8) | dstIp6[i + 1];
+      }
+      const len = payload.length;
+      sum += (len >>> 16) & 0xffff;
+      sum += len & 0xffff;
+      sum += nextHdr & 0xff;
+      for (let i = 0; i + 1 < len; i += 2) {
+        sum += (payload[i] << 8) | payload[i + 1];
+      }
+      if (len & 1) sum += payload[len - 1] << 8;
+      while (sum >>> 16) sum = (sum & 0xffff) + (sum >>> 16);
+      const res = (~sum) & 0xffff;
+      return res === 0 && nextHdr === 17 ? 0xffff : res;
+    }
+
+    function buildIpv6Frame(dstMac, srcMac, srcIp6, dstIp6, nextHdr, hopLimit, payload) {
+      const out = new Uint8Array(14 + 40 + payload.length);
+      out.set(dstMac, 0);
+      out.set(srcMac, 6);
+      out[12] = 0x86; out[13] = 0xdd;
+      const ip6 = 14;
+      out[ip6 + 0] = 0x60; out[ip6 + 1] = 0x00; out[ip6 + 2] = 0x00; out[ip6 + 3] = 0x00;
+      out[ip6 + 4] = (payload.length >> 8) & 0xff;
+      out[ip6 + 5] = payload.length & 0xff;
+      out[ip6 + 6] = nextHdr;
+      out[ip6 + 7] = hopLimit;
+      out.set(srcIp6, ip6 + 8);
+      out.set(dstIp6, ip6 + 24);
+      out.set(payload, ip6 + 40);
+      return out;
+    }
+
+    function handleOutgoingIpv6(buf) {
+      if (!(buf instanceof Uint8Array) || buf.length < 14 + 40) return false;
+      const etype = (buf[12] << 8) | buf[13];
+      if (etype !== 0x86dd) return false;
+      const ip6 = 14;
+      const payloadLen = (buf[ip6 + 4] << 8) | buf[ip6 + 5];
+      const nextHdr = buf[ip6 + 6];
+      if (14 + 40 + payloadLen > buf.length) return false;
+      const ethSrc = buf.slice(6, 12);
+      const srcIp6 = buf.slice(ip6 + 8, ip6 + 24);
+      const dstIp6 = buf.slice(ip6 + 24, ip6 + 40);
+      const body = buf.slice(ip6 + 40, ip6 + 40 + payloadLen);
+
+      // 1) ICMPv6 (Next Header = 58)
+      if (nextHdr === 58 && body.length >= 8) {
+        const icmpType = body[0];
+        // Type 135: Neighbor Solicitation -> reply with Type 136 Neighbor Advertisement
+        if (icmpType === 135 && body.length >= 24) {
+          const targetIp6 = body.slice(8, 24);
+          const na = new Uint8Array(32);
+          na[0] = 136; // Neighbor Advertisement
+          na[1] = 0;
+          na[4] = 0xe0; // Flags: Router (R=1), Solicited (S=1), Override (O=1)
+          na.set(targetIp6, 8);
+          na[24] = 2; // Option Type 2: Target Link-Layer Address
+          na[25] = 1; // Length: 1 (8 bytes)
+          na.set(ROUTER_MAC, 26);
+          const csum = icmpv6Checksum(targetIp6, srcIp6, 58, na);
+          na[2] = (csum >> 8) & 0xff;
+          na[3] = csum & 0xff;
+          const reply = buildIpv6Frame(ethSrc, ROUTER_MAC, targetIp6, srcIp6, 58, 255, na);
+          em.bus.send('net0-receive', reply);
+          return true;
+        }
+        // Type 128: ICMPv6 Echo Request (ping6) -> reply with Type 129 Echo Reply
+        if (icmpType === 128) {
+          const echoReply = new Uint8Array(body.length);
+          echoReply.set(body);
+          echoReply[0] = 129; // Echo Reply
+          echoReply[1] = 0;
+          echoReply[2] = 0;
+          echoReply[3] = 0;
+          const csum = icmpv6Checksum(dstIp6, srcIp6, 58, echoReply);
+          echoReply[2] = (csum >> 8) & 0xff;
+          echoReply[3] = csum & 0xff;
+          const reply = buildIpv6Frame(ethSrc, ROUTER_MAC, dstIp6, srcIp6, 58, 64, echoReply);
+          em.bus.send('net0-receive', reply);
+          return true;
+        }
+      }
+
+      // 2) UDPv6 port 53 DNS-over-IPv6 -> forward to DoH relay
+      if (nextHdr === 17 && body.length >= 8) {
+        const sport = (body[0] << 8) | body[1];
+        const dport = (body[2] << 8) | body[3];
+        const ulen = (body[4] << 8) | body[5];
+        if (dport === 53 && ulen >= 8 && ulen <= body.length) {
+          const dnsPayload = body.slice(8, ulen);
+          fetch(DNS_ENDPOINT, {
+            method: 'POST',
+            headers: { 'content-type': 'application/dns-message' },
+            body: dnsPayload,
+          })
+            .then((r) => (r.ok ? r.arrayBuffer() : null))
+            .then((ab) => {
+              if (!ab) return;
+              const respBytes = new Uint8Array(ab);
+              const udpOut = new Uint8Array(8 + respBytes.length);
+              udpOut[0] = 0; udpOut[1] = 53;
+              udpOut[2] = (sport >> 8) & 0xff; udpOut[3] = sport & 0xff;
+              udpOut[4] = (udpOut.length >> 8) & 0xff; udpOut[5] = udpOut.length & 0xff;
+              udpOut.set(respBytes, 8);
+              const csum = icmpv6Checksum(dstIp6, srcIp6, 17, udpOut);
+              udpOut[6] = (csum >> 8) & 0xff; udpOut[7] = csum & 0xff;
+              const reply = buildIpv6Frame(ethSrc, ROUTER_MAC, dstIp6, srcIp6, 17, 64, udpOut);
+              em.bus.send('net0-receive', reply);
+            })
+            .catch(() => {});
+          return true;
+        }
+      }
+
+      return false;
+    }
+
     async function handleDnsQuery(q) {
       try {
         const resp = await fetch(DNS_ENDPOINT, {
@@ -2545,6 +2669,7 @@
       const hijacker = {
         fn: (data) => {
           const buf = data instanceof ArrayBuffer ? new Uint8Array(data) : data;
+          if (handleOutgoingIpv6(buf)) return;
           const q = parseOutgoingDns(buf);
           if (q) { handleDnsQuery(q); return; }
           if (!prev) return;
@@ -2810,27 +2935,25 @@
         localStorage.setItem('v86.relay-url', 'wisps://linuxontab-net.fly.dev/wisp');
       }
     } catch(_) {}
-    const relayUrl = new URLSearchParams(location.search).get('relay')
+    const searchParams = new URLSearchParams(location.search);
+    const netOff = searchParams.get('net') === 'off' || searchParams.get('isolated') === '1';
+    const relayUrl = searchParams.get('relay')
       || localStorage.getItem('v86.relay-url')
       || 'wisps://linuxontab-net.fly.dev/wisp';
     // v86 selects the backend from the URL scheme: wisp://, wisps:// →
     // WispNetworkAdapter (TCP tunneling); ws://, wss:// → legacy raw-Ethernet
     // NetworkAdapter; "fetch" → FetchNetworkAdapter. v86 only creates a NIC
     // when net_device.type is set explicitly.
-    //
-    // What works with the config below:
-    //   - NIC bring-up, DHCP lease (192.168.86.100)
-    //   - ICMP (ping 1.1.1.1)
-    //   - TCP (real sockets via WISP to cloudflare:sockets)
-    //   - DNS via DoH proxied through our relay at /dns-query
-    cfg.net_device = {
-      type: 'ne2k',
-      relay_url: relayUrl,
-      dns_method: 'doh',
-      doh_server: 'relay.linuxontab.com',
-      // no cors_proxy: v86 reads it only in "fetch" mode (?relay=fetch), and
-      // the relay's /cors proxy is retired; fetch mode fetches directly.
-    };
+    // When ?net=off or ?isolated=1 is set (default for @wom / w0m-cp sandboxes),
+    // skip attaching the third-party WISP relay NIC altogether.
+    if (!netOff && relayUrl !== 'off' && relayUrl !== 'none') {
+      cfg.net_device = {
+        type: 'ne2k',
+        relay_url: relayUrl,
+        dns_method: 'doh',
+        doh_server: searchParams.get('doh') || 'relay.linuxontab.com',
+      };
+    }
     if (doRestore) {
       const blob = remoteSnapBuffer || await idbGet(snapKey);
       cfg.initial_state = { buffer: blob };
@@ -3210,6 +3333,9 @@
         'ip route replace default via 192.168.86.1 dev eth0 2>/dev/null\n' +
         'arp -d 192.168.86.1 2>/dev/null\n' +
         'arp -s 192.168.86.1 52:54:00:01:02:03\n' +
+        'ip -6 addr add fd00:86::100/64 dev eth0 2>/dev/null || ifconfig eth0 add fd00:86::100/64 2>/dev/null || true\n' +
+        'ip -6 neigh replace fd00:86::1 lladdr 52:54:00:01:02:03 nud permanent dev eth0 2>/dev/null || true\n' +
+        'ip -6 route replace default via fd00:86::1 dev eth0 2>/dev/null || route -A inet6 add ::/0 gw fd00:86::1 dev eth0 2>/dev/null || true\n' +
         'ifconfig lo 127.0.0.1 up 2>/dev/null || ip link set lo up 2>/dev/null\n' +
         'printf \'nameserver 1.1.1.1\\nnameserver 1.0.0.1\\n\' > /etc/resolv.conf\n' +
         'echo "[net] eth0 configured (operstate=$_st, retries=$_i)"\n' +
@@ -3583,6 +3709,7 @@
       //   #postboot=export%20FOO%3Dbar&postboot=https://example.com/install.sh
       // Each value is independently classified as URL vs verbatim.
       try {
+        const allowPostboot = new URLSearchParams(location.search).get('allow_postboot') === '1';
         const collect = (src) => {
           const out = [];
           if (!src) return out;
@@ -3595,22 +3722,24 @@
           ...collect(location.hash.replace(/^#/, '')),
         ];
         if (pbs.length) {
-          // Mark the boundary so it's visible in the terminal scrollback.
-          lines.push("echo '[postboot] running ?postboot= command…'");
-          for (const pb of pbs) {
-            if (/^https?:\/\//.test(pb.trim())) {
-              const url = pb.trim();
-              // Single-quote the URL for the guest shell. URLs shouldn't
-              // contain single quotes; if they do, swap to double quotes.
-              const q = url.indexOf("'") === -1 ? `'${url}'` : `"${url}"`;
-              lines.push(
-                `wget -qO /tmp/postboot.sh ${q} && ` +
-                `chmod +x /tmp/postboot.sh && ` +
-                `sh /tmp/postboot.sh; ` +
-                `rm -f /tmp/postboot.sh`
-              );
-            } else {
-              lines.push(pb);
+          if (!allowPostboot || !window.confirm(`Allow TabLinux to execute ${pbs.length} postboot command(s)?`)) {
+            lines.push("echo '[postboot] blocked unconfirmed ?postboot=/#postboot= command (pass ?allow_postboot=1 to prompt)'");
+          } else {
+            // Mark the boundary so it's visible in the terminal scrollback.
+            lines.push("echo '[postboot] running confirmed ?postboot= command…'");
+            for (const pb of pbs) {
+              if (/^https?:\/\//.test(pb.trim())) {
+                const url = pb.trim();
+                const q = url.indexOf("'") === -1 ? `'${url}'` : `"${url}"`;
+                lines.push(
+                  `wget -qO /tmp/postboot.sh ${q} && ` +
+                  `chmod +x /tmp/postboot.sh && ` +
+                  `sh /tmp/postboot.sh; ` +
+                  `rm -f /tmp/postboot.sh`
+                );
+              } else {
+                lines.push(pb);
+              }
             }
           }
         }
@@ -5298,7 +5427,7 @@
         fStatus('1/3 installing social CLI…');
         fLog('social not found — downloading', 'info');
         const dl = await followRun(
-          'wget -O /usr/local/bin/social https://linuxontab.com/local/social.sh && chmod +x /usr/local/bin/social',
+          `wget -O /usr/local/bin/social ${location.origin}/local/social.sh && chmod +x /usr/local/bin/social`,
           { timeout: 90000 }
         );
         if (dl.exitCode !== 0) {
@@ -5750,7 +5879,7 @@
   // BusyBox/hush in Alpine does NOT support bash process substitution
   // `sh <(curl ...)`. Download the script first to avoid truncation when
   // piping a large script over a slow WISP connection, then execute it.
-  const TUNNEL_CMD_PREFIX = 'wget -qO /tmp/tunnel-up.sh https://linuxontab.com/local/tunnel-up.sh && sh /tmp/tunnel-up.sh';
+  const TUNNEL_CMD_PREFIX = `wget -qO /tmp/tunnel-up.sh ${location.origin}/local/tunnel-up.sh && sh /tmp/tunnel-up.sh`;
   // channels: per-port websocat bridge pool size override. null/0/undefined
   // means use the script default (32). Syncthing GUI fires many parallel
   // long-polls so it benefits from more channels.
@@ -6579,7 +6708,7 @@
     // Default to ssh (22) when called without an explicit port.
     const remote = remotePort || 22;
     const local  = localPort  || tnDefaultLocalPort(remote);
-    const cmd = 'sh <(curl -sS https://linuxontab.com/local/tunnel-listen.sh) '
+    const cmd = `sh <(curl -sS ${location.origin}/local/tunnel-listen.sh) `
               + code + ' ' + local + ' ' + remote;
     let copied = false;
     try {
@@ -7138,7 +7267,7 @@
     clawSetStatus('fetching instructions…');
     await clawExec(
       'wget -qO ~/.config/clawlite/instructions/10-linuxontab.md' +
-      ' https://linuxontab.com/local/claw-instructions.md || true',
+      ` ${location.origin}/local/claw-instructions.md || true`,
       30000
     );
     clawConfigDone = true;
@@ -7147,10 +7276,10 @@
 
   async function clawDoInstall() {
     clawSetStatus('installing claw…');
-    clawMsg('downloading claw from linuxontab.com/local/clawlite.sh…', 'info');
+    clawMsg('downloading claw from ' + location.origin + '/local/clawlite.sh…', 'info');
     try {
       const r = await clawExec(
-        'wget -qO /usr/local/bin/claw https://linuxontab.com/local/clawlite.sh && chmod +x /usr/local/bin/claw',
+        `wget -qO /usr/local/bin/claw ${location.origin}/local/clawlite.sh && chmod +x /usr/local/bin/claw`,
         90000
       );
       if (r.exitCode === 0) {
@@ -7538,7 +7667,7 @@
         `</div>`;
       });
 
-      const macCmd = `sh <(curl -sS https://linuxontab.com/local/lot-bridge) listen ${st.code}`;
+      const macCmd = `sh <(curl -sS ${location.origin}/local/lot-bridge) listen ${st.code}`;
       const macIdx = ci(macCmd);
       const macRow = `<div class="lb-bridge-url" style="margin-top:6px">` +
         `<span class="lb-url-text" style="opacity:0.55;white-space:nowrap;flex-shrink:0">Mac localhost:</span>` +
@@ -8076,14 +8205,20 @@
 })();
 
 (() => {
+  const SLUG_RE = /^[a-z0-9_-]{1,32}$/i;
+  const sanitizeSlug = (val, fallback) => {
+    const s = String(val || '').trim();
+    return SLUG_RE.test(s) ? s.toLowerCase() : fallback;
+  };
+
   const qs = new URLSearchParams(location.search);
   const k7Select = document.getElementById('k7-module');
   const k7RunBtn = document.getElementById('k7-run');
   if (!k7Select || !k7RunBtn) return;
 
-  const initialMod = qs.get('k7') || qs.get('module');
-  const project = qs.get('project') || 'w0m';
-  const infEnv = qs.get('env') || 'beta';
+  const initialMod = sanitizeSlug(qs.get('k7') || qs.get('module'), '');
+  const project = sanitizeSlug(qs.get('project'), 'w0m');
+  const infEnv = sanitizeSlug(qs.get('env'), 'beta');
   if (initialMod && Array.from(k7Select.options).some(o => o.value === initialMod)) {
     k7Select.value = initialMod;
   }
@@ -8095,14 +8230,70 @@
     return true;
   }
 
-  function runSelectedK7Module() {
-    const mod = k7Select.value || 'hub';
+  async function write9pFile(emu, fsPath, text, mode = 0o644) {
+    const fs = emu && emu.fs9p;
+    if (!fs || typeof emu.create_file !== 'function') return false;
+    try {
+      const existing = fs.SearchPath(fsPath);
+      if (existing && existing.id !== -1 && existing.parentid !== -1) {
+        fs.Unlink(existing.parentid, existing.name);
+      }
+    } catch (_) {}
+    const bytes = new TextEncoder().encode(text);
+    await emu.create_file(fsPath, bytes);
+    try {
+      const sp = fs.SearchPath(fsPath);
+      if (sp && sp.id !== -1) {
+        const inode = fs.GetInode(sp.id);
+        inode.mode = (inode.mode & ~0o777) | mode;
+        const now = Math.floor(Date.now() / 1000);
+        inode.mtime = now;
+        inode.ctime = now;
+      }
+    } catch (_) {}
+    return true;
+  }
+
+  async function runSelectedK7Module() {
+    const mod = sanitizeSlug(k7Select.value, 'hub');
     const base = location.origin;
-    const cmd = `wget -qO- ${base}/local/k7-module.sh | sh -s -- ${mod} ${project} ${infEnv}`;
+    const rpcUrl =
+      `${base}/__k7/rpc?module=${encodeURIComponent(mod)}` +
+      `&project=${encodeURIComponent(project)}` +
+      `&env=${encodeURIComponent(infEnv)}`;
+
+    const [rpcText, scriptText] = await Promise.all([
+      fetch(rpcUrl, { credentials: 'same-origin' })
+        .then(r => (r.ok ? r.text() : ''))
+        .catch(() => ''),
+      fetch(`${base}/local/k7-module.sh`, { credentials: 'same-origin' })
+        .then(r => (r.ok ? r.text() : ''))
+        .catch(() => ''),
+    ]);
+
+    const emu = window.emulator;
+    if (emu && scriptText) {
+      try {
+        if (rpcText) await write9pFile(emu, '/.k7-rpc.json', rpcText, 0o644);
+        const wroteScript = await write9pFile(emu, '/.k7-module.sh', scriptText, 0o755);
+        if (wroteScript) {
+          sendGuestLine(
+            `mkdir -p /tmp/.lothost 2>/dev/null; ` +
+            `mount -t 9p -o trans=virtio,version=9p2000.L,msize=8192,access=any,cache=none host9p /tmp/.lothost 2>/dev/null; ` +
+            `K7_RPC_FILE=/tmp/.lothost/.k7-rpc.json sh /tmp/.lothost/.k7-module.sh '${mod}' '${project}' '${infEnv}'`
+          );
+          return;
+        }
+      } catch (_) {}
+    }
+
+    const cmd = `wget -qO- '${base}/local/k7-module.sh' | sh -s -- '${mod}' '${project}' '${infEnv}'`;
     sendGuestLine(cmd);
   }
 
-  k7RunBtn.addEventListener('click', runSelectedK7Module);
+  k7RunBtn.addEventListener('click', () => {
+    runSelectedK7Module().catch(err => console.warn('[k7] module run failed:', err));
+  });
 })();
 </script>
 </body>
