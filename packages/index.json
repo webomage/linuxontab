@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "generated": "2026-10-08",
+  "generated": "2026-11-08",
   "packages": {
     "busybox": {
       "version": "1.37.0",
@@ -1057,6 +1057,21 @@
         "jq",
         "zsh",
         "python3"
+      ],
+      "status": "available"
+    },
+    "just": {
+      "version": "1.59.0-w0m.1",
+      "description": "webomage/just (1.59.0 + w0m overlay: #3773 fmt header comments, #2684 multi-line docs, #1500 fallback --list, #1885 wildcard imports) for LinuxOnTab WASM",
+      "url": "https://linuxontab.com/packages/just-1.59.0-w0m.1.tar.gz",
+      "size": 3313,
+      "sha256": "b2d1639fe0b61f26e52accab527fdf07373731af5f70022c5aa78e707f13e4f9",
+      "bins": [
+        "just"
+      ],
+      "depends": [
+        "python3",
+        "zsh"
       ],
       "status": "available"
     }
