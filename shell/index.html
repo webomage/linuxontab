@@ -382,20 +382,24 @@
     <button id="claw" disabled title="claw — AI chatbot via clawlite in the guest">claw</button>
     <button id="lot-bridge" disabled title="lot-bridge — Rust WS↔TCP bridge pool (parallel to tunnels, separate)">lot-bridge</button>
     <button id="terminal" disabled title="switch the tmux active window back to lot:shell (Ctrl-B 0) — useful after a panel switched you to lot:tunnel/social/viewer">terminal</button>
-    <label title="@k7 Unified Module selector (Orca / standalone mode)">@k7:
+    <label title="@k7 & @wom Crew Unified Module selector (Orca / w0m-cp / standalone mode)">@k7:
       <select id="k7-module">
-        <option value="hub">[0] k7hub (All)</option>
+        <option value="hub">[0] k7hub (All Modules)</option>
         <option value="env">[1] k7env (Env/Proxies)</option>
         <option value="pwd">[2] k7pwd (Passwords)</option>
-        <option value="vm">[3] k7d (VMs/Tab)</option>
+        <option value="vm">[3] k7d (VMs/TabLinux)</option>
         <option value="k8s">[4] k7s (Kubernetes)</option>
         <option value="cloud">[5] k7c (Cloud Infra)</option>
         <option value="llm">[6] k7llm (Agents/A2A)</option>
         <option value="spec">[7] k7spec (Specs/MCP)</option>
         <option value="sol">[8] k7sol (Solana)</option>
         <option value="tg">[9] k7tg (Telegram/Logs)</option>
+        <option value="kb">[10] k7kb (KB & Data Mining)</option>
+        <option value="seo-geo">[11] k7kb seo-geo (SEO/GEO/Security)</option>
+        <option value="obs">[12] k7kb obs (Sentry/Datadog/Grafana/GA4/Clarity)</option>
+        <option value="acp">[13] k7kb acp (Same-Host Agent Discovery & ACP)</option>
       </select>
-      <button id="k7-run" title="Run selected @k7 module in guest shell">run @k7</button>
+      <button id="k7-run" title="Run selected @k7 / @wom module in guest shell">run @k7</button>
     </label>
     <span id="status" class="hint">idle</span>
     <span class="stat" id="stats"></span>
