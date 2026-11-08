@@ -382,6 +382,21 @@
     <button id="claw" disabled title="claw — AI chatbot via clawlite in the guest">claw</button>
     <button id="lot-bridge" disabled title="lot-bridge — Rust WS↔TCP bridge pool (parallel to tunnels, separate)">lot-bridge</button>
     <button id="terminal" disabled title="switch the tmux active window back to lot:shell (Ctrl-B 0) — useful after a panel switched you to lot:tunnel/social/viewer">terminal</button>
+    <label title="@k7 Unified Module selector (Orca / standalone mode)">@k7:
+      <select id="k7-module">
+        <option value="hub">[0] k7hub (All)</option>
+        <option value="env">[1] k7env (Env/Proxies)</option>
+        <option value="pwd">[2] k7pwd (Passwords)</option>
+        <option value="vm">[3] k7d (VMs/Tab)</option>
+        <option value="k8s">[4] k7s (Kubernetes)</option>
+        <option value="cloud">[5] k7c (Cloud Infra)</option>
+        <option value="llm">[6] k7llm (Agents/A2A)</option>
+        <option value="spec">[7] k7spec (Specs/MCP)</option>
+        <option value="sol">[8] k7sol (Solana)</option>
+        <option value="tg">[9] k7tg (Telegram/Logs)</option>
+      </select>
+      <button id="k7-run" title="Run selected @k7 module in guest shell">run @k7</button>
+    </label>
     <span id="status" class="hint">idle</span>
     <span class="stat" id="stats"></span>
   </div>
@@ -8054,6 +8069,36 @@
   }
 
   window.termPip = { show, hide, toggle, set: setRect, getRect };
+})();
+
+(() => {
+  const qs = new URLSearchParams(location.search);
+  const k7Select = document.getElementById('k7-module');
+  const k7RunBtn = document.getElementById('k7-run');
+  if (!k7Select || !k7RunBtn) return;
+
+  const initialMod = qs.get('k7') || qs.get('module');
+  const project = qs.get('project') || 'w0m';
+  const infEnv = qs.get('env') || 'beta';
+  if (initialMod && Array.from(k7Select.options).some(o => o.value === initialMod)) {
+    k7Select.value = initialMod;
+  }
+
+  function sendGuestLine(cmd) {
+    const emu = window.emulator;
+    if (!emu || typeof emu.serial0_send !== 'function') return false;
+    emu.serial0_send(cmd + '\n');
+    return true;
+  }
+
+  function runSelectedK7Module() {
+    const mod = k7Select.value || 'hub';
+    const base = location.origin;
+    const cmd = `wget -qO- ${base}/local/k7-module.sh | sh -s -- ${mod} ${project} ${infEnv}`;
+    sendGuestLine(cmd);
+  }
+
+  k7RunBtn.addEventListener('click', runSelectedK7Module);
 })();
 </script>
 </body>
