@@ -1,0 +1,13 @@
+{
+  "name": "@webomage/tablinux",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Webomage TabLinux (LinuxOnTab v86 WASM) Cloudflare Pages + @k7 Crew Integration (TypeScript)",
+  "scripts": {
+    "build:cf": "node cloudflare-build.ts",
+    "build:cf:bundled": "node cloudflare-build.ts --bundle-small-packages",
+    "serve": "node cloudflare-serve.ts",
+    "test": "node --test cloudflare.test.ts"
+  }
+}

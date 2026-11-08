@@ -8262,25 +8262,20 @@
       `&project=${encodeURIComponent(project)}` +
       `&env=${encodeURIComponent(infEnv)}`;
 
-    const [rpcText, scriptText] = await Promise.all([
-      fetch(rpcUrl, { credentials: 'same-origin' })
-        .then(r => (r.ok ? r.text() : ''))
-        .catch(() => ''),
-      fetch(`${base}/local/k7-module.sh`, { credentials: 'same-origin' })
-        .then(r => (r.ok ? r.text() : ''))
-        .catch(() => ''),
-    ]);
+    const rpcObj = await fetch(rpcUrl, { credentials: 'same-origin' })
+      .then(r => (r.ok ? r.json() : null))
+      .catch(() => null);
 
     const emu = window.emulator;
-    if (emu && scriptText) {
+    if (emu && rpcObj && typeof rpcObj.ansiReport === 'string') {
       try {
-        if (rpcText) await write9pFile(emu, '/.k7-rpc.json', rpcText, 0o644);
-        const wroteScript = await write9pFile(emu, '/.k7-module.sh', scriptText, 0o755);
-        if (wroteScript) {
+        await write9pFile(emu, '/.k7-rpc.json', JSON.stringify(rpcObj, null, 2) + '\n', 0o644);
+        const wroteReport = await write9pFile(emu, '/.k7-report.txt', rpcObj.ansiReport, 0o644);
+        if (wroteReport) {
           sendGuestLine(
             `mkdir -p /tmp/.lothost 2>/dev/null; ` +
             `mount -t 9p -o trans=virtio,version=9p2000.L,msize=8192,access=any,cache=none host9p /tmp/.lothost 2>/dev/null; ` +
-            `K7_RPC_FILE=/tmp/.lothost/.k7-rpc.json sh /tmp/.lothost/.k7-module.sh '${mod}' '${project}' '${infEnv}'`
+            `cat /tmp/.lothost/.k7-report.txt`
           );
           return;
         }

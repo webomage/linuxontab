@@ -1,0 +1,14 @@
+name = "w0m-tablinux"
+compatibility_date = "2026-11-08"
+pages_build_output_dir = "./dist"
+
+[vars]
+UPSTREAM_RAW = "https://raw.githubusercontent.com/webomage/linuxontab/main"
+# Set CF_ACCESS_ENABLED = "1" when fronted by Cloudflare Access Zero Trust
+CF_ACCESS_ENABLED = "0"
+
+# Optional Cloudflare R2 bucket binding (`AgDR-0055` Cloudflare-First zero-egress asset store)
+# Holds `shell/alpine.iso` (48 MiB) and active `packages/*.tar.gz` archives:
+# [[r2_buckets]]
+# binding = "LOT_ASSETS"
+# bucket_name = "w0m-tablinux-assets"
