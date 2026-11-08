@@ -1074,6 +1074,18 @@
         "zsh"
       ],
       "status": "available"
+    },
+    "ipv6": {
+      "version": "1.0.0",
+      "description": "IPv6 ULA/Global eth0 auto-configuration, Neighbor Discovery & ::/0 route helper for LinuxOnTab WASM",
+      "url": "https://linuxontab.com/packages/ipv6-1.0.0.tar.gz",
+      "size": 548,
+      "sha256": "293bb50e5cf784bce28bde5eacbb2793030eae655357d40faba62856ffdb9838",
+      "bins": [
+        "ipv6-up"
+      ],
+      "depends": [],
+      "status": "available"
     }
   }
 }
