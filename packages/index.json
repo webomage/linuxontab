@@ -1032,6 +1032,33 @@
         "zsh"
       ],
       "status": "available"
+    },
+    "k7": {
+      "version": "0.1.0",
+      "description": "k7 Unified Operator Cockpit & 10-Module TUI/CLI Suite (kb, env, pwd, cloud, spec, vm, k8s, llm, notify, sol) for LinuxOnTab WASM",
+      "url": "https://linuxontab.com/packages/k7-0.1.0.tar.gz",
+      "size": 2250,
+      "sha256": "8dfd45eb50e82b036fc44d3c8c6143da4f77f0ac59d75b19fd79427479c988f7",
+      "bins": [
+        "k7",
+        "k7kb",
+        "k7env",
+        "k7pwd",
+        "k7c",
+        "k7spec",
+        "k7d",
+        "k7s",
+        "k7llm",
+        "k7tg",
+        "k7sol"
+      ],
+      "depends": [
+        "curl",
+        "jq",
+        "zsh",
+        "python3"
+      ],
+      "status": "available"
     }
   }
 }
