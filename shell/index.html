@@ -382,6 +382,9 @@
     <button id="claw" disabled title="claw — AI chatbot via clawlite in the guest">claw</button>
     <button id="lot-bridge" disabled title="lot-bridge — Rust WS↔TCP bridge pool (parallel to tunnels, separate)">lot-bridge</button>
     <button id="terminal" disabled title="switch the tmux active window back to lot:shell (Ctrl-B 0) — useful after a panel switched you to lot:tunnel/social/viewer">terminal</button>
+    <button id="lot-paste-btn" type="button" title="Paste clipboard into terminal (Ctrl+V / Ctrl+Shift+V; Shift+Click for multi-line box)">paste</button>
+    <button id="lot-copy-btn" type="button" title="Copy selected terminal text to clipboard">copy</button>
+    <span id="lot-paste-status" style="font-size:11px;color:#4ade80;"></span>
     <label title="@k7 & @wom Crew Unified Module selector (Orca / w0m-cp / standalone mode)">@k7:
       <select id="k7-module">
         <option value="hub">[0] k7hub (All Modules)</option>
@@ -2310,6 +2313,12 @@
     markDirty();
     return true;
   }
+  window.term = term;
+  window.sendGuestText = sendGuestText;
+  window.lot_stdin_bytes = function (u8) {
+    const str = typeof u8 === 'string' ? u8 : new TextDecoder().decode(u8);
+    return sendGuestText(str);
+  };
 
   // ── Umount-before-save handshake ────────────────────────────────────────
   // The 9P kernel client tracks chan->inuse in guest RAM. If we save_state()
@@ -4662,10 +4671,10 @@
       return false;
     }
     if (k === 'v') {
-      navigator.clipboard.readText().then(t => {
-        if (t) sendGuestText(t);
-      }).catch(() => {});
-      return false;
+      // Allow native browser `paste` event (`clipboardData.getData('text/plain')`)
+      // to fire without requiring clipboard-read permissions, with fallback to
+      // `window.TabLinuxClipboard` if the browser does not fire `paste`.
+      return true;
     }
     if (k === 'a' && ev.shiftKey === false) {
       // Cmd+A (no shift) → select all in terminal buffer
@@ -8291,5 +8300,6 @@
   });
 })();
 </script>
+<script src="../local/clipboard-bridge.js"></script>
 </body>
 </html>

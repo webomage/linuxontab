@@ -235,3 +235,23 @@ test("cloudflare-serve.ts serves COOP/COEP headers, Range 206, and /__k7/rpc", a
     await new Promise<void>((resolve) => server.close(() => resolve()));
   }
 });
+
+test("TabLinux clipboard bridge wires Ctrl+V/paste event, top-bar Paste/Copy buttons, and lot_stdin_bytes bridge", () => {
+  const bridgeSrc = fs.readFileSync(path.join(ROOT_DIR, "local", "clipboard-bridge.js"), "utf8");
+  const shellHtml = fs.readFileSync(path.join(ROOT_DIR, "shell", "index.html"), "utf8");
+  const pipHtml = fs.readFileSync(path.join(ROOT_DIR, "pip-shell.html"), "utf8");
+
+  assert.match(bridgeSrc, /TabLinuxClipboard/);
+  assert.match(bridgeSrc, /lot_stdin_bytes/);
+  assert.match(bridgeSrc, /tablinux:paste/);
+  assert.match(bridgeSrc, /lot-paste-modal/);
+
+  assert.match(shellHtml, /id="lot-paste-btn"/);
+  assert.match(shellHtml, /id="lot-copy-btn"/);
+  assert.match(shellHtml, /window\.lot_stdin_bytes/);
+  assert.match(shellHtml, /\.\.\/local\/clipboard-bridge\.js/);
+
+  assert.match(pipHtml, /id="lot-paste-btn"/);
+  assert.match(pipHtml, /\.\/local\/clipboard-bridge\.js/);
+  assert.doesNotMatch(pipHtml, /^r\s+goBtn\.addEventListener/m);
+});

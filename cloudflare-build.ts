@@ -16,8 +16,15 @@ import * as path from "node:path";
 import { fileURLToPath } from "node:url";
 
 export const PAGES_MAX_FILE_BYTES = 25 * 1024 * 1024;
-const TOP_LEVEL_FILES = ["index.html", "robots.txt", "sitemap.xml", "og.png", ".nojekyll"] as const;
-const COPY_DIRS = ["shell", "viewer", "local", "changelog"] as const;
+const TOP_LEVEL_FILES = [
+  "index.html",
+  "pip-shell.html",
+  "robots.txt",
+  "sitemap.xml",
+  "og.png",
+  ".nojekyll",
+] as const;
+const COPY_DIRS = ["shell", "viewer", "local", "changelog", "2.0"] as const;
 
 export interface PackageIndexEntry {
   file?: string;

@@ -274,6 +274,7 @@
     <input id="url" class="url" value="https://linuxontab.com/shell/" spellcheck="false" />
     <button id="go" class="btn">Go</button>
     <button id="newtab" class="btn" title="Create a new in-page PiP window and add it as a tab in fullscreen view">New Window</button>
+    <button id="lot-paste-btn" class="btn" type="button" title="Paste clipboard or multi-line command into terminal">Paste</button>
     <div class="hint">Drag header to move. Resize from bottom-right corner.</div>
   </div>
 
@@ -686,7 +687,7 @@
       }
 
       goBtn.addEventListener('click', () => loadUrl(urlInput.value));
-r      goBtn.addEventListener('pointerdown', () => bringToFront(pip));
+      goBtn.addEventListener('pointerdown', () => bringToFront(pip));
       urlInput.addEventListener('keydown', (e) => {
         if (e.key === 'Enter') {
           e.preventDefault();
@@ -836,5 +837,6 @@ r      goBtn.addEventListener('pointerdown', () => bringToFront(pip));
       window.addEventListener('beforeunload', saveState);
     })();
   </script>
+  <script src="./local/clipboard-bridge.js"></script>
 </body>
 </html>
